@@ -1,4 +1,4 @@
-package com.example.playerdatasync.premium.database;
+package com.example.playerdatasync.database;
 
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
@@ -20,20 +20,20 @@ import java.util.concurrent.Future;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.economy.EconomyResponse;
 
-import com.example.playerdatasync.premium.core.PlayerDataSyncPremium;
-import com.example.playerdatasync.premium.managers.AdvancementSyncManager;
-import com.example.playerdatasync.premium.managers.ConfigManager;
-import com.example.playerdatasync.premium.utils.InventoryUtils;
-import com.example.playerdatasync.premium.utils.SchedulerUtils;
-import com.example.playerdatasync.premium.utils.OfflinePlayerData;
-import com.example.playerdatasync.premium.utils.PlayerDataCache;
+import com.example.playerdatasync.core.PlayerDataSync;
+import com.example.playerdatasync.managers.AdvancementSyncManager;
+import com.example.playerdatasync.managers.ConfigManager;
+import com.example.playerdatasync.utils.InventoryUtils;
+import com.example.playerdatasync.utils.OfflinePlayerData;
+import com.example.playerdatasync.utils.PlayerDataCache;
+import com.example.playerdatasync.utils.SchedulerUtils;
 
-public class DatabaseManager {
-    private final PlayerDataSyncPremium plugin;
+public class SQLDatabaseManager implements DatabaseManager {
+    private final PlayerDataSync plugin;
     // Cache is initialized but not yet used in current implementation
     @SuppressWarnings("unused")
     private final PlayerDataCache cache;
-    
+
     // Performance monitoring
     private long totalSaveTime = 0;
     private long totalLoadTime = 0;
@@ -42,7 +42,7 @@ public class DatabaseManager {
     private long lastPerformanceLog = 0;
     private final long PERFORMANCE_LOG_INTERVAL = 300000; // 5 minutes
 
-    public DatabaseManager(PlayerDataSyncPremium plugin) {
+    public SQLDatabaseManager(PlayerDataSync plugin) {
         this.plugin = plugin;
         this.cache = new PlayerDataCache(plugin);
     }
@@ -78,7 +78,7 @@ public class DatabaseManager {
                 plugin.getLogger().severe("Database connection unavailable");
                 return;
             }
-            
+
             try (Statement st = connection.createStatement()) {
                 st.executeUpdate(sql);
                 // Ensure columns exist for older installations
@@ -93,13 +93,14 @@ public class DatabaseManager {
                         st.executeUpdate("ALTER TABLE " + tableName + " ADD COLUMN saturation FLOAT");
                     }
                 }
-                // Upgrade inventory-related columns from TEXT to LONGTEXT to support large inventories
+                // Upgrade inventory-related columns from TEXT to LONGTEXT to support large
+                // inventories
                 // with custom enchantments (e.g., ExcellentEnchants)
                 upgradeColumnToLongText(meta, st, tableName, "inventory");
                 upgradeColumnToLongText(meta, st, tableName, "enderchest");
                 upgradeColumnToLongText(meta, st, tableName, "armor");
                 upgradeColumnToLongText(meta, st, tableName, "offhand");
-                
+
                 try (ResultSet rs = meta.getColumns(null, null, tableName, "advancements")) {
                     if (!rs.next()) {
                         st.executeUpdate("ALTER TABLE " + tableName + " ADD COLUMN advancements LONGTEXT");
@@ -111,7 +112,8 @@ public class DatabaseManager {
                                 st.executeUpdate("ALTER TABLE " + tableName + " MODIFY COLUMN advancements LONGTEXT");
                                 plugin.getLogger().info("Upgraded advancements column from TEXT to LONGTEXT");
                             } catch (SQLException e) {
-                                plugin.getLogger().warning("Could not upgrade advancements column to LONGTEXT: " + e.getMessage());
+                                plugin.getLogger().warning(
+                                        "Could not upgrade advancements column to LONGTEXT: " + e.getMessage());
                             }
                         }
                     }
@@ -133,11 +135,12 @@ public class DatabaseManager {
             plugin.returnConnection(connection);
         }
     }
-    
+
     /**
      * Helper method to add column if it doesn't exist
      */
-    private void addColumnIfNotExists(DatabaseMetaData meta, Statement st, String table, String columnName, String columnType) throws SQLException {
+    private void addColumnIfNotExists(DatabaseMetaData meta, Statement st, String table, String columnName,
+            String columnType) throws SQLException {
         try (ResultSet rs = meta.getColumns(null, null, table, columnName)) {
             if (!rs.next()) {
                 st.executeUpdate("ALTER TABLE " + table + " ADD COLUMN " + columnName + " " + columnType);
@@ -147,10 +150,11 @@ public class DatabaseManager {
             plugin.getLogger().warning("Could not add column " + columnName + ": " + e.getMessage());
         }
     }
-    
+
     /**
      * Helper method to upgrade column from TEXT to LONGTEXT
-     * This is needed for large inventories with custom enchantments (e.g., ExcellentEnchants)
+     * This is needed for large inventories with custom enchantments (e.g.,
+     * ExcellentEnchants)
      */
     private void upgradeColumnToLongText(DatabaseMetaData meta, Statement st, String table, String columnName) {
         try (ResultSet rs = meta.getColumns(null, null, table, columnName)) {
@@ -159,9 +163,11 @@ public class DatabaseManager {
                 if ("TEXT".equalsIgnoreCase(dataType)) {
                     try {
                         st.executeUpdate("ALTER TABLE " + table + " MODIFY COLUMN " + columnName + " LONGTEXT");
-                        plugin.getLogger().info("Upgraded " + columnName + " column from TEXT to LONGTEXT to support large inventories");
+                        plugin.getLogger().info("Upgraded " + columnName
+                                + " column from TEXT to LONGTEXT to support large inventories");
                     } catch (SQLException e) {
-                        plugin.getLogger().warning("Could not upgrade " + columnName + " column to LONGTEXT: " + e.getMessage());
+                        plugin.getLogger()
+                                .warning("Could not upgrade " + columnName + " column to LONGTEXT: " + e.getMessage());
                     }
                 }
             }
@@ -169,7 +175,7 @@ public class DatabaseManager {
             plugin.getLogger().fine("Could not check " + columnName + " column type: " + e.getMessage());
         }
     }
-    
+
     /**
      * Try to upgrade a column immediately when a truncation error occurs
      */
@@ -182,7 +188,8 @@ public class DatabaseManager {
                     if ("TEXT".equalsIgnoreCase(dataType)) {
                         try (Statement st = connection.createStatement()) {
                             st.executeUpdate("ALTER TABLE " + table + " MODIFY COLUMN " + columnName + " LONGTEXT");
-                            plugin.getLogger().info("Successfully upgraded " + columnName + " column to LONGTEXT during runtime");
+                            plugin.getLogger()
+                                    .info("Successfully upgraded " + columnName + " column to LONGTEXT during runtime");
                         }
                     }
                 }
@@ -191,12 +198,13 @@ public class DatabaseManager {
             plugin.getLogger().fine("Could not upgrade " + columnName + " column immediately: " + e.getMessage());
         }
     }
-    
+
     /**
      * Extract column name from SQL error message
      */
     private String extractColumnName(String errorMessage) {
-        // Try to extract column name from error message like "Data too long for column 'inventory'"
+        // Try to extract column name from error message like "Data too long for column
+        // 'inventory'"
         if (errorMessage.contains("'")) {
             int start = errorMessage.indexOf("'");
             int end = errorMessage.indexOf("'", start + 1);
@@ -214,7 +222,8 @@ public class DatabaseManager {
     public boolean savePlayer(Player player) {
         long startTime = System.currentTimeMillis();
         String tableName = getTableName();
-        String sql = "REPLACE INTO " + tableName + " (uuid, world, x, y, z, yaw, pitch, xp, gamemode, enderchest, inventory, armor, offhand, effects, statistics, attributes, health, hunger, saturation, advancements, economy, last_save, server_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        String sql = "REPLACE INTO " + tableName
+                + " (uuid, world, x, y, z, yaw, pitch, xp, gamemode, enderchest, inventory, armor, offhand, effects, statistics, attributes, health, hunger, saturation, advancements, economy, last_save, server_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
         try {
             PlayerSnapshot snapshot;
@@ -225,7 +234,8 @@ public class DatabaseManager {
             }
 
             if (snapshot == null) {
-                plugin.getLogger().warning("Skipping save for player " + player.getName() + " because snapshot creation failed");
+                plugin.getLogger()
+                        .warning("Skipping save for player " + player.getName() + " because snapshot creation failed");
                 return false;
             }
 
@@ -267,7 +277,8 @@ public class DatabaseManager {
                 saveCount++;
 
                 if (saveTime > 1000) {
-                    plugin.getLogger().warning("Slow save detected for " + snapshot.playerName + ": " + saveTime + "ms");
+                    plugin.getLogger()
+                            .warning("Slow save detected for " + snapshot.playerName + ": " + saveTime + "ms");
                 }
 
                 logPerformanceStats();
@@ -278,16 +289,17 @@ public class DatabaseManager {
                 if (e.getMessage().contains("Data too long for column")) {
                     String columnName = extractColumnName(e.getMessage());
                     plugin.getLogger().severe("Data truncation error for " + snapshot.playerName +
-                        ": " + e.getMessage());
+                            ": " + e.getMessage());
                     plugin.getLogger().severe("The " + columnName + " column is too small. " +
-                        "The plugin will automatically upgrade TEXT columns to LONGTEXT on next restart. " +
-                        "If this error persists, please restart the server to trigger the database upgrade.");
-                    
+                            "The plugin will automatically upgrade TEXT columns to LONGTEXT on next restart. " +
+                            "If this error persists, please restart the server to trigger the database upgrade.");
+
                     // Try to upgrade the column immediately if possible
                     try {
                         upgradeColumnToLongTextImmediate(connection, getTableName(), columnName);
                     } catch (Exception upgradeError) {
-                        plugin.getLogger().warning("Could not upgrade column immediately: " + upgradeError.getMessage());
+                        plugin.getLogger()
+                                .warning("Could not upgrade column immediately: " + upgradeError.getMessage());
                     }
                 } else {
                     plugin.getLogger().severe("Could not save data for " + snapshot.playerName + ": " + e.getMessage());
@@ -323,22 +335,22 @@ public class DatabaseManager {
             snapshot.pitch = loc.getPitch();
         }
 
-        snapshot.totalExperience = plugin.isSyncXp() ? player.getTotalExperience() : 0;
+        snapshot.totalExperience = plugin.isSyncXp() ? calculateTotalExperience(player) : 0;
         snapshot.gamemode = plugin.isSyncGamemode() ? player.getGameMode().name() : null;
 
         try {
             snapshot.enderChestData = plugin.isSyncEnderchest()
-                ? InventoryUtils.itemStackArrayToBase64(player.getEnderChest().getContents())
-                : null;
+                    ? InventoryUtils.itemStackArrayToBase64(player.getEnderChest().getContents())
+                    : null;
             snapshot.inventoryData = plugin.isSyncInventory()
-                ? InventoryUtils.itemStackArrayToBase64(player.getInventory().getContents())
-                : null;
+                    ? InventoryUtils.itemStackArrayToBase64(player.getInventory().getContents())
+                    : null;
             snapshot.armorData = plugin.isSyncArmor()
-                ? InventoryUtils.itemStackArrayToBase64(player.getInventory().getArmorContents())
-                : null;
+                    ? InventoryUtils.itemStackArrayToBase64(player.getInventory().getArmorContents())
+                    : null;
             // Offhand requires 1.9+
             snapshot.offhandData = null;
-            if (plugin.isSyncOffhand() && com.example.playerdatasync.premium.utils.VersionCompatibility.isOffhandSupported()) {
+            if (plugin.isSyncOffhand() && com.example.playerdatasync.utils.VersionCompatibility.isOffhandSupported()) {
                 try {
                     snapshot.offhandData = InventoryUtils.itemStackToBase64(player.getInventory().getItemInOffHand());
                 } catch (NoSuchMethodError e) {
@@ -359,11 +371,13 @@ public class DatabaseManager {
             snapshot.attributesData = null;
         }
 
-        // Get max health safely (getMaxHealth() is deprecated but required for 1.8 compatibility)
+        // Get max health safely (getMaxHealth() is deprecated but required for 1.8
+        // compatibility)
         double maxHealth = 20.0;
         try {
-            if (com.example.playerdatasync.premium.utils.VersionCompatibility.isAttributesSupported()) {
-                org.bukkit.attribute.AttributeInstance attr = player.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH);
+            if (com.example.playerdatasync.utils.VersionCompatibility.isAttributesSupported()) {
+                org.bukkit.attribute.AttributeInstance attr = player
+                        .getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH);
                 if (attr != null) {
                     maxHealth = attr.getValue();
                 }
@@ -389,22 +403,24 @@ public class DatabaseManager {
                 long achievementTime = System.currentTimeMillis() - achievementStartTime;
                 if (achievementTime > 2000) {
                     plugin.getLogger().warning("Slow achievement serialization for " + player.getName() +
-                        ": " + achievementTime + "ms. Consider disabling achievement sync for better performance.");
+                            ": " + achievementTime + "ms. Consider disabling achievement sync for better performance.");
                 }
 
                 if (snapshot.advancementsData != null && snapshot.advancementsData.length() > 16777215) {
                     plugin.getLogger().warning("Advancement data for " + player.getName() + " is too large (" +
-                        snapshot.advancementsData.length() + " characters), skipping advancement sync to prevent database errors");
+                            snapshot.advancementsData.length()
+                            + " characters), skipping advancement sync to prevent database errors");
                     snapshot.advancementsData = null;
                 }
             } catch (Exception e) {
                 plugin.getLogger().severe("CRITICAL: Achievement serialization failed for " + player.getName() +
-                    ". Disabling achievement sync to prevent server freeze: " + e.getMessage());
+                        ". Disabling achievement sync to prevent server freeze: " + e.getMessage());
                 snapshot.advancementsData = null;
 
                 if (plugin.getConfig().getBoolean("compatibility.disable_achievements_on_critical_error", true)) {
-                    plugin.getLogger().severe("CRITICAL: Automatically disabling achievement sync for " + player.getName() +
-                        " due to critical error. Set 'compatibility.disable_achievements_on_critical_error: false' to prevent this.");
+                    plugin.getLogger().severe("CRITICAL: Automatically disabling achievement sync for "
+                            + player.getName() +
+                            " due to critical error. Set 'compatibility.disable_achievements_on_critical_error: false' to prevent this.");
                 }
             }
         }
@@ -426,7 +442,6 @@ public class DatabaseManager {
         String tableName = getTableName();
         String sql = "SELECT * FROM " + tableName + " WHERE uuid = ?";
 
-        
         Connection connection = null;
         try {
             connection = plugin.getConnection();
@@ -434,7 +449,7 @@ public class DatabaseManager {
                 plugin.getLogger().severe("Database connection unavailable");
                 return;
             }
-            
+
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
                 ps.setString(1, player.getUniqueId().toString());
                 try (ResultSet rs = ps.executeQuery()) {
@@ -452,7 +467,8 @@ public class DatabaseManager {
                                             rs.getFloat("pitch"));
                                     SchedulerUtils.runTask(plugin, player, () -> player.teleport(loc));
                                 } else {
-                                    plugin.getLogger().warning("World " + worldName + " not found when loading data for " + player.getName());
+                                    plugin.getLogger().warning("World " + worldName
+                                            + " not found when loading data for " + player.getName());
                                 }
                             }
                         }
@@ -485,25 +501,29 @@ public class DatabaseManager {
                                     final ItemStack[] finalItems = items;
                                     SchedulerUtils.runTask(plugin, player, () -> {
                                         try {
-                                            // Set enderchest contents - this preserves all NBT data including custom enchantments
+                                            // Set enderchest contents - this preserves all NBT data including custom
+                                            // enchantments
                                             player.getEnderChest().setContents(finalItems);
-                                            
+
                                             // Force refresh of enderchest to ensure custom enchantments are recognized
                                             SchedulerUtils.runTaskLater(plugin, player, () -> {
                                                 if (player.isOnline()) {
                                                     ItemStack[] currentItems = player.getEnderChest().getContents();
                                                     player.getEnderChest().setContents(currentItems);
-                                                    plugin.logDebug("Successfully loaded enderchest for " + player.getName() + 
-                                                        " (" + InventoryUtils.countItems(finalItems) + " items)");
+                                                    plugin.logDebug("Successfully loaded enderchest for "
+                                                            + player.getName() +
+                                                            " (" + InventoryUtils.countItems(finalItems) + " items)");
                                                 }
                                             }, 2L); // 2 ticks delay to allow plugins to process custom enchantments
                                         } catch (Exception e) {
-                                            plugin.getLogger().severe("Error setting enderchest for " + player.getName() + ": " + e.getMessage());
+                                            plugin.getLogger().severe("Error setting enderchest for " + player.getName()
+                                                    + ": " + e.getMessage());
                                             plugin.getLogger().log(java.util.logging.Level.SEVERE, "Stack trace:", e);
                                         }
                                     });
                                 } catch (Exception e) {
-                                    plugin.getLogger().severe("Error deserializing enderchest for " + player.getName() + ": " + e.getMessage());
+                                    plugin.getLogger().severe("Error deserializing enderchest for " + player.getName()
+                                            + ": " + e.getMessage());
                                     plugin.getLogger().log(java.util.logging.Level.SEVERE, "Stack trace:", e);
                                 }
                             }
@@ -528,49 +548,61 @@ public class DatabaseManager {
                                     final ItemStack[] finalItems = items;
                                     SchedulerUtils.runTask(plugin, player, () -> {
                                         try {
-                                            // Set inventory contents - this preserves all NBT data including custom enchantments
+                                            // Set inventory contents - this preserves all NBT data including custom
+                                            // enchantments
                                             player.getInventory().setContents(finalItems);
                                             // Critical: Update inventory to sync with client
                                             player.updateInventory();
-                                            
-                                            // Force refresh of items to ensure custom enchantments (e.g., ExcellentEnchants) are recognized
+
+                                            // Force refresh of items to ensure custom enchantments (e.g.,
+                                            // ExcellentEnchants) are recognized
                                             // Some plugins need a tick delay to process custom NBT data
                                             SchedulerUtils.runTaskLater(plugin, player, () -> {
                                                 if (player.isOnline()) {
-                                                    // Refresh inventory by re-setting items to trigger plugin processing
+                                                    // Refresh inventory by re-setting items to trigger plugin
+                                                    // processing
                                                     ItemStack[] currentItems = player.getInventory().getContents();
                                                     player.getInventory().setContents(currentItems);
                                                     player.updateInventory();
-                                                    
-                                                    plugin.logDebug("Successfully loaded inventory for " + player.getName() + 
-                                                        " (" + InventoryUtils.countItems(finalItems) + " items)");
-                                                    
+
+                                                    plugin.logDebug("Successfully loaded inventory for "
+                                                            + player.getName() +
+                                                            " (" + InventoryUtils.countItems(finalItems) + " items)");
+
                                                     // Debug: Check for custom enchantments (e.g., ExcellentEnchants)
                                                     if (plugin.isDebugEnabled()) {
                                                         int customEnchantCount = 0;
                                                         for (ItemStack item : currentItems) {
                                                             if (item != null && item.hasItemMeta()) {
-                                                                // Check if item has enchantments (including custom ones)
-                                                                if (item.getItemMeta().hasEnchants() || 
-                                                                    (item.getItemMeta().getPersistentDataContainer() != null && 
-                                                                     !item.getItemMeta().getPersistentDataContainer().getKeys().isEmpty())) {
+                                                                // Check if item has enchantments (including custom
+                                                                // ones)
+                                                                if (item.getItemMeta().hasEnchants() ||
+                                                                        (item.getItemMeta()
+                                                                                .getPersistentDataContainer() != null &&
+                                                                                !item.getItemMeta()
+                                                                                        .getPersistentDataContainer()
+                                                                                        .getKeys().isEmpty())) {
                                                                     customEnchantCount++;
                                                                 }
                                                             }
                                                         }
                                                         if (customEnchantCount > 0) {
-                                                            plugin.logDebug("Detected " + customEnchantCount + " items with enchantments/metadata in inventory for " + player.getName());
+                                                            plugin.logDebug("Detected " + customEnchantCount
+                                                                    + " items with enchantments/metadata in inventory for "
+                                                                    + player.getName());
                                                         }
                                                     }
                                                 }
                                             }, 2L); // 2 ticks delay to allow plugins to process custom enchantments
                                         } catch (Exception e) {
-                                            plugin.getLogger().severe("Error setting inventory for " + player.getName() + ": " + e.getMessage());
+                                            plugin.getLogger().severe("Error setting inventory for " + player.getName()
+                                                    + ": " + e.getMessage());
                                             plugin.getLogger().log(java.util.logging.Level.SEVERE, "Stack trace:", e);
                                         }
                                     });
                                 } catch (Exception e) {
-                                    plugin.getLogger().severe("Error deserializing inventory for " + player.getName() + ": " + e.getMessage());
+                                    plugin.getLogger().severe("Error deserializing inventory for " + player.getName()
+                                            + ": " + e.getMessage());
                                     plugin.getLogger().log(java.util.logging.Level.SEVERE, "Stack trace:", e);
                                 }
                             }
@@ -581,8 +613,9 @@ public class DatabaseManager {
                                 // Get max health safely
                                 double maxHealth = 20.0;
                                 try {
-                                    if (com.example.playerdatasync.premium.utils.VersionCompatibility.isAttributesSupported()) {
-                                        org.bukkit.attribute.AttributeInstance attr = player.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH);
+                                    if (com.example.playerdatasync.utils.VersionCompatibility.isAttributesSupported()) {
+                                        org.bukkit.attribute.AttributeInstance attr = player
+                                                .getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH);
                                         if (attr != null) {
                                             maxHealth = attr.getValue();
                                         }
@@ -610,37 +643,43 @@ public class DatabaseManager {
                             if (armorData != null) {
                                 try {
                                     ItemStack[] armor = InventoryUtils.safeItemStackArrayFromBase64(armorData);
-                                    // Normalize armor array to exactly 4 slots (boots, leggings, chestplate, helmet)
+                                    // Normalize armor array to exactly 4 slots (boots, leggings, chestplate,
+                                    // helmet)
                                     armor = normalizeArmorArray(armor);
                                     final ItemStack[] finalArmor = armor;
                                     SchedulerUtils.runTask(plugin, player, () -> {
                                         try {
-                                            // Set armor contents - this preserves all NBT data including custom enchantments
+                                            // Set armor contents - this preserves all NBT data including custom
+                                            // enchantments
                                             player.getInventory().setArmorContents(finalArmor);
                                             // Update inventory to sync armor with client
                                             player.updateInventory();
-                                            
+
                                             // Force refresh of armor to ensure custom enchantments are recognized
                                             SchedulerUtils.runTaskLater(plugin, player, () -> {
                                                 if (player.isOnline()) {
                                                     ItemStack[] currentArmor = player.getInventory().getArmorContents();
                                                     player.getInventory().setArmorContents(currentArmor);
                                                     player.updateInventory();
-                                                    plugin.logDebug("Successfully loaded armor for " + player.getName());
+                                                    plugin.logDebug(
+                                                            "Successfully loaded armor for " + player.getName());
                                                 }
                                             }, 2L); // 2 ticks delay to allow plugins to process custom enchantments
                                         } catch (Exception e) {
-                                            plugin.getLogger().severe("Error setting armor for " + player.getName() + ": " + e.getMessage());
+                                            plugin.getLogger().severe("Error setting armor for " + player.getName()
+                                                    + ": " + e.getMessage());
                                             plugin.getLogger().log(java.util.logging.Level.SEVERE, "Stack trace:", e);
                                         }
                                     });
                                 } catch (Exception e) {
-                                    plugin.getLogger().severe("Error deserializing armor for " + player.getName() + ": " + e.getMessage());
+                                    plugin.getLogger().severe("Error deserializing armor for " + player.getName() + ": "
+                                            + e.getMessage());
                                     plugin.getLogger().log(java.util.logging.Level.SEVERE, "Stack trace:", e);
                                 }
                             }
                         }
-                        if (plugin.isSyncOffhand() && com.example.playerdatasync.premium.utils.VersionCompatibility.isOffhandSupported()) {
+                        if (plugin.isSyncOffhand()
+                                && com.example.playerdatasync.utils.VersionCompatibility.isOffhandSupported()) {
                             String offhandData = rs.getString("offhand");
                             if (offhandData != null) {
                                 try {
@@ -648,29 +687,33 @@ public class DatabaseManager {
                                     final ItemStack finalOffhand = offhand;
                                     SchedulerUtils.runTask(plugin, player, () -> {
                                         try {
-                                            // Set offhand item - this preserves all NBT data including custom enchantments
+                                            // Set offhand item - this preserves all NBT data including custom
+                                            // enchantments
                                             player.getInventory().setItemInOffHand(finalOffhand);
                                             // Update inventory to sync offhand with client
                                             player.updateInventory();
-                                            
+
                                             // Force refresh of offhand to ensure custom enchantments are recognized
                                             SchedulerUtils.runTaskLater(plugin, player, () -> {
                                                 if (player.isOnline()) {
                                                     ItemStack currentOffhand = player.getInventory().getItemInOffHand();
                                                     player.getInventory().setItemInOffHand(currentOffhand);
                                                     player.updateInventory();
-                                                    plugin.logDebug("Successfully loaded offhand for " + player.getName());
+                                                    plugin.logDebug(
+                                                            "Successfully loaded offhand for " + player.getName());
                                                 }
                                             }, 2L); // 2 ticks delay to allow plugins to process custom enchantments
                                         } catch (NoSuchMethodError e) {
                                             plugin.getLogger().warning("Offhand not supported on this version");
                                         } catch (Exception e) {
-                                            plugin.getLogger().severe("Error setting offhand for " + player.getName() + ": " + e.getMessage());
+                                            plugin.getLogger().severe("Error setting offhand for " + player.getName()
+                                                    + ": " + e.getMessage());
                                             plugin.getLogger().log(java.util.logging.Level.SEVERE, "Stack trace:", e);
                                         }
                                     });
                                 } catch (Exception e) {
-                                    plugin.getLogger().severe("Error deserializing offhand for " + player.getName() + ": " + e.getMessage());
+                                    plugin.getLogger().severe("Error deserializing offhand for " + player.getName()
+                                            + ": " + e.getMessage());
                                     plugin.getLogger().log(java.util.logging.Level.SEVERE, "Stack trace:", e);
                                 }
                             }
@@ -685,8 +728,8 @@ public class DatabaseManager {
                                     if (player.getHealth() > 0 && !player.isDead()) {
                                         loadEffects(player, effectsData);
                                     } else {
-                                        plugin.logDebug("Skipping effect restoration for " + player.getName() + 
-                                            " - player appears to be dead or respawning");
+                                        plugin.logDebug("Skipping effect restoration for " + player.getName() +
+                                                " - player appears to be dead or respawning");
                                     }
                                 });
                             }
@@ -708,9 +751,10 @@ public class DatabaseManager {
                             AdvancementSyncManager advancementSyncManager = plugin.getAdvancementSyncManager();
                             if (advancementSyncManager != null) {
                                 advancementSyncManager.seedFromDatabase(player.getUniqueId(), advData);
-                                if (advData == null && plugin.getConfig().getBoolean("performance.automatic_player_advancement_import", true)) {
-                                    SchedulerUtils.runTask(plugin, player, () ->
-                                        advancementSyncManager.queuePlayerImport(player, false));
+                                if (advData == null && plugin.getConfig()
+                                        .getBoolean("performance.automatic_player_advancement_import", true)) {
+                                    SchedulerUtils.runTask(plugin, player,
+                                            () -> advancementSyncManager.queuePlayerImport(player, false));
                                 }
                             }
 
@@ -718,14 +762,17 @@ public class DatabaseManager {
                                 // Check if there are too many achievements to prevent lag
                                 String[] achievementKeys = advData.split(",");
                                 if (achievementKeys.length > 200) {
-                                    plugin.getLogger().warning("Large amount of achievements detected for " + player.getName() + 
-                                        " (" + achievementKeys.length + "). Loading in background to prevent server lag.");
+                                    plugin.getLogger()
+                                            .warning("Large amount of achievements detected for " + player.getName() +
+                                                    " (" + achievementKeys.length
+                                                    + "). Loading in background to prevent server lag.");
                                     // Load achievements asynchronously in background
                                     SchedulerUtils.runTaskAsync(plugin, () -> {
                                         try {
                                             loadAdvancements(player, advData);
                                         } catch (Exception e) {
-                                            plugin.getLogger().severe("Error loading achievements for " + player.getName() + ": " + e.getMessage());
+                                            plugin.getLogger().severe("Error loading achievements for "
+                                                    + player.getName() + ": " + e.getMessage());
                                         }
                                     });
                                 } else {
@@ -737,22 +784,24 @@ public class DatabaseManager {
                         if (plugin.isSyncEconomy()) {
                             double balance = rs.getDouble("economy");
                             plugin.logDebug("Loading economy balance for " + player.getName() + ": " + balance);
-                            // Fix for Issue #42: Ensure economy provider is available before restoring balance
+                            // Fix for Issue #42: Ensure economy provider is available before restoring
+                            // balance
                             // Delay balance restoration slightly to ensure Vault is fully loaded
                             SchedulerUtils.runTaskLater(plugin, player, () -> {
                                 // Re-check economy provider availability
                                 if (plugin.getEconomyProvider() != null) {
                                     setPlayerBalance(player, balance);
                                 } else {
-                                    plugin.getLogger().warning("Economy provider not available when loading balance for " + 
-                                        player.getName() + ". Retrying in 1 second...");
+                                    plugin.getLogger()
+                                            .warning("Economy provider not available when loading balance for " +
+                                                    player.getName() + ". Retrying in 1 second...");
                                     // Retry after 1 second
                                     SchedulerUtils.runTaskLater(plugin, player, () -> {
                                         if (plugin.getEconomyProvider() != null) {
                                             setPlayerBalance(player, balance);
                                         } else {
-                                            plugin.getLogger().severe("Failed to restore economy balance for " + 
-                                                player.getName() + " - economy provider unavailable");
+                                            plugin.getLogger().severe("Failed to restore economy balance for " +
+                                                    player.getName() + " - economy provider unavailable");
                                         }
                                     }, 20L);
                                 }
@@ -762,17 +811,17 @@ public class DatabaseManager {
                         }
                     }
                 }
-                
+
                 // Update performance metrics
                 long loadTime = System.currentTimeMillis() - startTime;
                 totalLoadTime += loadTime;
                 loadCount++;
-                
+
                 // Log slow loads
                 if (loadTime > 2000) { // More than 2 seconds
                     plugin.getLogger().warning("Slow load detected for " + player.getName() + ": " + loadTime + "ms");
                 }
-                
+
             } catch (SQLException e) {
                 plugin.getLogger().severe("Could not load data for " + player.getName() + ": " + e.getMessage());
             } finally {
@@ -786,67 +835,74 @@ public class DatabaseManager {
     private void applyExperience(Player player, int total) {
         try {
             // Fix for Issue #43, #45 and XP sync across all versions (1.8-1.21.11)
-            // Use giveExp() as primary method - it's more reliable than setTotalExperience()
+            // Use giveExp() as primary method - it's more reliable than
+            // setTotalExperience()
             // Validate experience value
             if (total < 0) {
-                plugin.getLogger().warning("Invalid experience value (" + total + ") for " + player.getName() + ", setting to 0");
+                plugin.getLogger()
+                        .warning("Invalid experience value (" + total + ") for " + player.getName() + ", setting to 0");
                 total = 0;
             }
-            
+
             // Store current values for logging
             int oldTotal = player.getTotalExperience();
             int oldLevel = player.getLevel();
-            
+
             // Reset experience completely first to ensure clean state
-            // Order matters: setTotalExperience(0) must be called last to reset everything properly
+            // Order matters: setTotalExperience(0) must be called last to reset everything
+            // properly
             player.setExp(0.0f);
             player.setLevel(0);
             player.setTotalExperience(0);
-            
-            // Use giveExp() method which is more reliable across all Minecraft versions (1.8-1.21.11)
-            // It automatically calculates level and exp bar correctly without version-specific bugs
-            if (total > 0) {
-                player.giveExp(total);
-                
-                // Verify the experience was set correctly
+
+            // Use giveExp() method which is more reliable across all Minecraft versions
+            // (1.8-1.21.11)
+            // It automatically calculates level and exp bar correctly without
+            // version-specific bugs
+            if (total <= 0) {
+                return;
+            }
+
+            final int maxCorrectionAttempts = 2;
+            int remaining = total;
+
+            for (int attempt = 1; attempt <= maxCorrectionAttempts && remaining > 0; attempt++) {
+                player.giveExp(remaining);
+
                 int actualTotal = player.getTotalExperience();
-                if (actualTotal != total) {
-                    plugin.getLogger().warning("Experience mismatch for " + player.getName() + 
-                        ": expected " + total + ", got " + actualTotal + " (old: " + oldTotal + ", level " + oldLevel + ")");
-                    
-                    // If we got less than expected, add the difference
-                    if (actualTotal < total) {
-                        int difference = total - actualTotal;
-                        player.giveExp(difference);
-                        
-                        // Verify again after correction
-                        int newTotal = player.getTotalExperience();
-                        if (newTotal != total) {
-                            plugin.getLogger().warning("Experience correction failed for " + player.getName() + 
-                                ": expected " + total + ", got " + newTotal);
-                        } else {
-                            plugin.getLogger().fine("Experience corrected successfully for " + player.getName() + 
-                                ": " + total + " XP (level " + player.getLevel() + ")");
-                        }
-                    } else if (actualTotal > total) {
-                        // If we got more (shouldn't happen with giveExp, but handle it anyway)
-                        plugin.getLogger().warning("Experience exceeded expected value for " + player.getName() + 
-                            ": expected " + total + ", got " + actualTotal);
-                        // Reset and try again
-                        player.setExp(0.0f);
-                        player.setLevel(0);
-                        player.setTotalExperience(0);
-                        player.giveExp(total);
-                    }
-                } else {
-                    plugin.getLogger().fine("Experience set successfully for " + player.getName() + 
-                        ": " + total + " XP (level " + player.getLevel() + ", was " + oldLevel + ")");
+                int difference = total - actualTotal;
+                if (difference == 0) {
+                    plugin.getLogger().fine("Experience set successfully for " + player.getName() +
+                            ": " + total + " XP (level " + player.getLevel() + ", was " + oldLevel + ")");
+                    return;
                 }
+
+                if (difference < 0) {
+                    plugin.getLogger().warning("Experience exceeded expected value for " + player.getName() +
+                            ": expected " + total + ", got " + actualTotal + " (attempt " + attempt + ")");
+                    player.setExp(0.0f);
+                    player.setLevel(0);
+                    player.setTotalExperience(0);
+                    remaining = total;
+                    continue;
+                }
+
+                plugin.getLogger().fine("Experience mismatch for " + player.getName() +
+                        ": expected " + total + ", got " + actualTotal + " (remaining " + difference + ", attempt "
+                        + attempt + ")");
+                remaining = difference;
+            }
+
+            int finalTotal = player.getTotalExperience();
+            if (finalTotal != total) {
+                plugin.getLogger().warning("Experience correction failed for " + player.getName() +
+                        ": expected " + total + ", got " + finalTotal + " (old: " + oldTotal + ", level " + oldLevel
+                        + ")");
             }
         } catch (Exception e) {
             plugin.getLogger().severe("Error applying experience to " + player.getName() + ": " + e.getMessage());
             plugin.getLogger().log(java.util.logging.Level.SEVERE, "Stack trace:", e);
-            
+
             // Last resort fallback: try to reset and use giveExp directly
             try {
                 player.setExp(0.0f);
@@ -857,11 +913,41 @@ public class DatabaseManager {
                     plugin.getLogger().info("Fallback experience application succeeded for " + player.getName());
                 }
             } catch (Exception e2) {
-                plugin.getLogger().severe("Fallback experience application also failed for " + player.getName() + 
-                    ": " + e2.getMessage());
+                plugin.getLogger().severe("Fallback experience application also failed for " + player.getName() +
+                        ": " + e2.getMessage());
                 plugin.getLogger().log(java.util.logging.Level.SEVERE, "Stack trace:", e2);
             }
         }
+    }
+
+    /**
+     * Calculates the player's total experience using level + progress.
+     *
+     * <p>
+     * Using {@link Player#getTotalExperience()} directly can return stale values
+     * in edge-cases where experience is spent quickly (for example in enchanting
+     * workflows followed by immediate logout/server switch).
+     */
+    private int calculateTotalExperience(Player player) {
+        if (player == null) {
+            return 0;
+        }
+
+        int level = Math.max(0, player.getLevel());
+        float progress = player.getExp();
+        int total = getExpAtLevel(level) + Math.round(progress * player.getExpToLevel());
+
+        return Math.max(total, 0);
+    }
+
+    private int getExpAtLevel(int level) {
+        if (level <= 16) {
+            return level * level + 6 * level;
+        }
+        if (level <= 31) {
+            return (int) (2.5 * level * level - 40.5 * level + 360);
+        }
+        return (int) (4.5 * level * level - 162.5 * level + 2220);
     }
 
     private String serializeAdvancements(Player player) {
@@ -884,12 +970,14 @@ public class DatabaseManager {
     private String legacySerializeAdvancements(Player player) {
         // CRITICAL: Add timeout protection to prevent server freezing
         long startTime = System.currentTimeMillis();
-        final long TIMEOUT_MS = plugin.getConfig().getLong("performance.achievement_timeout_ms", 5000); // Configurable timeout
-        
+        final long TIMEOUT_MS = plugin.getConfig().getLong("performance.achievement_timeout_ms", 5000); // Configurable
+                                                                                                        // timeout
+
         // Check if achievement sync is disabled due to performance concerns
         if (plugin.getConfig().getBoolean("performance.disable_achievement_sync_on_large_amounts", true)) {
             int totalAdvancements = 0;
-            final int MAX_COUNT_ATTEMPTS = 2000; // Hard limit to prevent infinite loops (increased for Minecraft's 1000+ achievements)
+            final int MAX_COUNT_ATTEMPTS = 2000; // Hard limit to prevent infinite loops (increased for Minecraft's
+                                                 // 1000+ achievements)
             try {
                 // CRITICAL: Add timeout check for counting achievements with hard limit
                 Iterator<Advancement> it = Bukkit.getServer().advancementIterator();
@@ -897,114 +985,125 @@ public class DatabaseManager {
                     // Advance the iterator to prevent hasNext() from always returning true
                     it.next();
                     totalAdvancements++;
-                    
+
                     // CRITICAL: Check timeout every 50 achievements to prevent freezing
                     if (totalAdvancements % 50 == 0) {
                         if (System.currentTimeMillis() - startTime > TIMEOUT_MS) {
-                            plugin.getLogger().severe("CRITICAL: Achievement counting timeout for " + player.getName() + 
-                                " after " + totalAdvancements + " achievements. Aborting to prevent server freeze.");
+                            plugin.getLogger().severe("CRITICAL: Achievement counting timeout for " + player.getName() +
+                                    " after " + totalAdvancements
+                                    + " achievements. Aborting to prevent server freeze.");
                             return null;
                         }
                     }
                 }
-                
+
                 // If we hit the hard limit, something is wrong
                 if (totalAdvancements >= MAX_COUNT_ATTEMPTS) {
-                    plugin.getLogger().severe("CRITICAL: Achievement counting hit hard limit (" + MAX_COUNT_ATTEMPTS + 
-                        ") for " + player.getName() + ". This indicates an infinite loop. Disabling achievement sync.");
+                    plugin.getLogger().severe("CRITICAL: Achievement counting hit hard limit (" + MAX_COUNT_ATTEMPTS +
+                            ") for " + player.getName()
+                            + ". This indicates an infinite loop. Disabling achievement sync.");
                     return null;
                 }
-                
+
                 // If there are more than 1500 achievements, disable sync to prevent lag
                 if (totalAdvancements > 1500) {
-                    plugin.getLogger().warning("Large amount of achievements detected (" + totalAdvancements + 
-                        "). Achievement sync disabled for " + player.getName() + " to prevent server lag.");
+                    plugin.getLogger().warning("Large amount of achievements detected (" + totalAdvancements +
+                            "). Achievement sync disabled for " + player.getName() + " to prevent server lag.");
                     return null;
                 }
             } catch (Exception e) {
                 plugin.getLogger().warning("Could not count achievements, proceeding with sync: " + e.getMessage());
             }
         }
-        
+
         StringBuilder sb = new StringBuilder();
         int count = 0;
         final int MAX_LENGTH = 16777215; // LONGTEXT max length in MySQL (16MB)
-        final int MAX_ACHIEVEMENTS = plugin.getConfig().getInt("performance.max_achievements_per_player", 2000); // Configurable limit (increased for Minecraft's 1000+ achievements)
-        
+        final int MAX_ACHIEVEMENTS = plugin.getConfig().getInt("performance.max_achievements_per_player", 2000); // Configurable
+                                                                                                                 // limit
+                                                                                                                 // (increased
+                                                                                                                 // for
+                                                                                                                 // Minecraft's
+                                                                                                                 // 1000+
+                                                                                                                 // achievements)
+
         try {
             // Only serialize achievements that are actually completed
             // This prevents loading all 2000+ achievements on first login
             Iterator<Advancement> it = Bukkit.getServer().advancementIterator();
             int processedCount = 0; // Track total processed (including non-completed)
-            final int MAX_PROCESSED = 3000; // Hard limit to prevent infinite loops (increased for Minecraft's 1000+ achievements)
-            
+            final int MAX_PROCESSED = 3000; // Hard limit to prevent infinite loops (increased for Minecraft's 1000+
+                                            // achievements)
+
             while (it.hasNext() && count < MAX_ACHIEVEMENTS && processedCount < MAX_PROCESSED) {
                 processedCount++;
-                
+
                 // CRITICAL: Check timeout every 25 achievements
                 if (count % 25 == 0 && count > 0) {
                     if (System.currentTimeMillis() - startTime > TIMEOUT_MS) {
-                        plugin.getLogger().severe("CRITICAL: Achievement serialization timeout for " + player.getName() + 
-                            " after " + count + " achievements. Aborting to prevent server freeze.");
+                        plugin.getLogger()
+                                .severe("CRITICAL: Achievement serialization timeout for " + player.getName() +
+                                        " after " + count + " achievements. Aborting to prevent server freeze.");
                         break;
                     }
                 }
-                
+
                 // CRITICAL: Check if we've processed too many total advancements
                 if (processedCount >= MAX_PROCESSED) {
-                    plugin.getLogger().severe("CRITICAL: Achievement processing hit hard limit (" + MAX_PROCESSED + 
-                        ") for " + player.getName() + ". This indicates an infinite loop. Aborting.");
+                    plugin.getLogger().severe("CRITICAL: Achievement processing hit hard limit (" + MAX_PROCESSED +
+                            ") for " + player.getName() + ". This indicates an infinite loop. Aborting.");
                     break;
                 }
-                
+
                 Advancement adv = it.next();
                 if (adv == null) {
                     plugin.getLogger().warning("Null advancement encountered, skipping...");
                     continue;
                 }
-                
+
                 try {
                     AdvancementProgress progress = player.getAdvancementProgress(adv);
                     if (progress != null && progress.isDone()) {
                         String key = adv.getKey().toString();
                         // Add comma separator if not first entry
                         String toAdd = (sb.length() > 0 ? "," : "") + key;
-                        
+
                         // Check if adding this advancement would exceed the limit
                         if (sb.length() + toAdd.length() > MAX_LENGTH) {
-                            plugin.getLogger().warning("Advancement data for " + player.getName() + 
-                                " is too large, truncating at " + count + " achievements");
+                            plugin.getLogger().warning("Advancement data for " + player.getName() +
+                                    " is too large, truncating at " + count + " achievements");
                             break;
                         }
-                        
+
                         sb.append(toAdd);
                         count++;
                     }
                 } catch (Exception e) {
-                    plugin.getLogger().warning("Error processing advancement for " + player.getName() + ": " + e.getMessage());
+                    plugin.getLogger()
+                            .warning("Error processing advancement for " + player.getName() + ": " + e.getMessage());
                     // Continue with next advancement instead of failing completely
                 }
             }
-            
+
             if (count > 0) {
                 ConfigManager configManager = plugin.getConfigManager();
                 if (configManager != null && configManager.isPerformanceLoggingEnabled()) {
                     plugin.getLogger().info("Serialized " + count + " achievements for " + player.getName() + " in " +
-                        (System.currentTimeMillis() - startTime) + "ms");
+                            (System.currentTimeMillis() - startTime) + "ms");
                 }
             }
-            
+
             // CRITICAL: Log if we hit the limit
             if (count >= MAX_ACHIEVEMENTS) {
-                plugin.getLogger().warning("CRITICAL: Hit maximum achievement limit (" + MAX_ACHIEVEMENTS + 
-                    ") for " + player.getName() + ". This may indicate an infinite loop.");
+                plugin.getLogger().warning("CRITICAL: Hit maximum achievement limit (" + MAX_ACHIEVEMENTS +
+                        ") for " + player.getName() + ". This may indicate an infinite loop.");
             }
-            
+
         } catch (Exception e) {
             plugin.getLogger().severe("Error serializing achievements for " + player.getName() + ": " + e.getMessage());
             return null;
         }
-        
+
         return sb.toString();
     }
 
@@ -1015,15 +1114,16 @@ public class DatabaseManager {
         try {
             StringBuilder sb = new StringBuilder();
             for (org.bukkit.potion.PotionEffect effect : player.getActivePotionEffects()) {
-                if (sb.length() > 0) sb.append(";");
+                if (sb.length() > 0)
+                    sb.append(";");
                 // Use getKey().getKey() for better compatibility (getName() is deprecated)
                 String effectName = effect.getType().getKey().getKey();
                 sb.append(effectName)
-                  .append(",").append(effect.getAmplifier())
-                  .append(",").append(effect.getDuration())
-                  .append(",").append(effect.isAmbient())
-                  .append(",").append(effect.hasParticles())
-                  .append(",").append(effect.hasIcon());
+                        .append(",").append(effect.getAmplifier())
+                        .append(",").append(effect.getDuration())
+                        .append(",").append(effect.isAmbient())
+                        .append(",").append(effect.hasParticles())
+                        .append(",").append(effect.hasIcon());
             }
             return sb.toString();
         } catch (Exception e) {
@@ -1031,7 +1131,7 @@ public class DatabaseManager {
             return null;
         }
     }
-    
+
     /**
      * Serialize player statistics
      */
@@ -1042,7 +1142,8 @@ public class DatabaseManager {
                 try {
                     int value = player.getStatistic(stat);
                     if (value > 0) {
-                        if (sb.length() > 0) sb.append(";");
+                        if (sb.length() > 0)
+                            sb.append(";");
                         sb.append(stat.name()).append(",").append(value);
                     }
                 } catch (Exception e) {
@@ -1055,30 +1156,32 @@ public class DatabaseManager {
             return null;
         }
     }
-    
+
     /**
      * Serialize player attributes with version compatibility handling
      */
     private String serializeAttributes(Player player) {
         try {
             StringBuilder sb = new StringBuilder();
-            
+
             // Check if safe attribute sync is enabled in config
             boolean safeAttributeSync = plugin.getConfig().getBoolean("compatibility.safe_attribute_sync", true);
-            
+
             if (safeAttributeSync) {
                 // Use reflection to safely get Attribute enum values for better compatibility
                 try {
                     Class<?> attributeClass = Class.forName("org.bukkit.attribute.Attribute");
                     Object[] attributes = (Object[]) attributeClass.getMethod("values").invoke(null);
-                    
+
                     for (Object attrObj : attributes) {
                         try {
                             String attrName = (String) attrObj.getClass().getMethod("name").invoke(attrObj);
-                            org.bukkit.attribute.AttributeInstance instance = player.getAttribute((org.bukkit.attribute.Attribute) attrObj);
-                            
+                            org.bukkit.attribute.AttributeInstance instance = player
+                                    .getAttribute((org.bukkit.attribute.Attribute) attrObj);
+
                             if (instance != null) {
-                                if (sb.length() > 0) sb.append(";");
+                                if (sb.length() > 0)
+                                    sb.append(";");
                                 sb.append(attrName).append(",").append(instance.getBaseValue());
                             }
                         } catch (Exception e) {
@@ -1088,13 +1191,15 @@ public class DatabaseManager {
                     }
                 } catch (Exception e) {
                     // Fallback to direct method call if reflection fails
-                    plugin.getLogger().warning("Reflection failed for attributes, using fallback method: " + e.getMessage());
-                    
+                    plugin.getLogger()
+                            .warning("Reflection failed for attributes, using fallback method: " + e.getMessage());
+
                     for (org.bukkit.attribute.Attribute attr : org.bukkit.attribute.Attribute.values()) {
                         try {
                             org.bukkit.attribute.AttributeInstance instance = player.getAttribute(attr);
                             if (instance != null) {
-                                if (sb.length() > 0) sb.append(";");
+                                if (sb.length() > 0)
+                                    sb.append(";");
                                 sb.append(attr.name()).append(",").append(instance.getBaseValue());
                             }
                         } catch (Exception ex) {
@@ -1109,7 +1214,8 @@ public class DatabaseManager {
                     try {
                         org.bukkit.attribute.AttributeInstance instance = player.getAttribute(attr);
                         if (instance != null) {
-                            if (sb.length() > 0) sb.append(";");
+                            if (sb.length() > 0)
+                                sb.append(";");
                             sb.append(attr.name()).append(",").append(instance.getBaseValue());
                         }
                     } catch (Exception ex) {
@@ -1118,17 +1224,18 @@ public class DatabaseManager {
                     }
                 }
             }
-            
+
             return sb.toString();
         } catch (Exception e) {
             plugin.getLogger().warning("Error serializing attributes for " + player.getName() + ": " + e.getMessage());
-            
+
             // Check if we should disable attributes on error
             if (plugin.getConfig().getBoolean("compatibility.disable_attributes_on_error", false)) {
-                plugin.getLogger().warning("Disabling attribute sync due to error. Set 'compatibility.disable_attributes_on_error: false' to prevent this.");
+                plugin.getLogger().warning(
+                        "Disabling attribute sync due to error. Set 'compatibility.disable_attributes_on_error: false' to prevent this.");
                 plugin.setSyncAttributes(false);
             }
-            
+
             return null;
         }
     }
@@ -1137,46 +1244,48 @@ public class DatabaseManager {
      * Load achievements with performance optimization for large amounts
      */
     private void loadAdvancements(Player player, String data) {
-        if (data == null || data.isEmpty()) return;
-        
+        if (data == null || data.isEmpty())
+            return;
+
         try {
             String[] keys = data.split(",");
             final int totalKeys = keys.length;
-            
+
             // Log the number of achievements to be loaded
             if (totalKeys > 100) {
-                plugin.getLogger().info("Loading " + totalKeys + " achievements for " + player.getName() + 
-                    " (this may take a moment for large amounts)");
+                plugin.getLogger().info("Loading " + totalKeys + " achievements for " + player.getName() +
+                        " (this may take a moment for large amounts)");
             }
-            
+
             // Process achievements in batches to prevent server lag
             final int BATCH_SIZE = 50;
             for (int i = 0; i < keys.length; i += BATCH_SIZE) {
                 final int batchStart = i;
                 final int batchEnd = Math.min(i + BATCH_SIZE, keys.length);
-                
+
                 // Process batch asynchronously to prevent server lag
                 SchedulerUtils.runTaskLater(plugin, player, () -> {
                     int batchLoaded = 0;
                     int batchFailed = 0;
-                    
+
                     for (int j = batchStart; j < batchEnd; j++) {
                         String k = keys[j];
-                        if (k.trim().isEmpty()) continue;
-                        
+                        if (k.trim().isEmpty())
+                            continue;
+
                         try {
                             NamespacedKey key = NamespacedKey.fromString(k.trim());
                             if (key == null) {
                                 batchFailed++;
                                 continue;
                             }
-                            
+
                             Advancement adv = Bukkit.getAdvancement(key);
                             if (adv == null) {
                                 batchFailed++;
                                 continue;
                             }
-                            
+
                             AdvancementProgress prog = player.getAdvancementProgress(adv);
                             if (!prog.isDone()) {
                                 for (String criterion : prog.getRemainingCriteria()) {
@@ -1186,51 +1295,57 @@ public class DatabaseManager {
                             }
                         } catch (Exception e) {
                             batchFailed++;
-                            plugin.getLogger().warning("Failed to load advancement '" + k + "' for " + player.getName() + ": " + e.getMessage());
+                            plugin.getLogger().warning("Failed to load advancement '" + k + "' for " + player.getName()
+                                    + ": " + e.getMessage());
                         }
                     }
-                    
+
                     // Log progress for large batches
                     if (totalKeys > 100 && batchEnd >= totalKeys) {
-                        plugin.getLogger().info("Finished loading achievements for " + player.getName() + 
-                            ": " + batchLoaded + " loaded, " + batchFailed + " failed");
+                        plugin.getLogger().info("Finished loading achievements for " + player.getName() +
+                                ": " + batchLoaded + " loaded, " + batchFailed + " failed");
                     }
                 }, (i / BATCH_SIZE) * 2L); // Spread batches over time to prevent lag
             }
-            
+
         } catch (Exception e) {
             plugin.getLogger().severe("Error loading achievements for " + player.getName() + ": " + e.getMessage());
         }
     }
-    
+
     /**
      * Load player potion effects
      */
     private void loadEffects(Player player, String data) {
-        if (data == null || data.isEmpty()) return;
-        
+        if (data == null || data.isEmpty())
+            return;
+
         try {
             // Clear existing effects first
             for (org.bukkit.potion.PotionEffect effect : player.getActivePotionEffects()) {
                 player.removePotionEffect(effect.getType());
             }
-            
+
             String[] effects = data.split(";");
             for (String effectStr : effects) {
-                if (effectStr.trim().isEmpty()) continue;
-                
+                if (effectStr.trim().isEmpty())
+                    continue;
+
                 try {
                     String[] parts = effectStr.split(",");
                     if (parts.length >= 6) {
-                        // Both getByName() and getByKey() are deprecated, but getByName() works across all versions
+                        // Both getByName() and getByKey() are deprecated, but getByName() works across
+                        // all versions
                         // We use it with @SuppressWarnings for compatibility
                         org.bukkit.potion.PotionEffectType type = null;
                         try {
                             @SuppressWarnings("deprecation")
-                            org.bukkit.potion.PotionEffectType tempType = org.bukkit.potion.PotionEffectType.getByName(parts[0].toUpperCase());
+                            org.bukkit.potion.PotionEffectType tempType = org.bukkit.potion.PotionEffectType
+                                    .getByName(parts[0].toUpperCase());
                             type = tempType;
                         } catch (Exception e) {
-                            plugin.getLogger().warning("Could not parse potion effect type: " + parts[0] + ": " + e.getMessage());
+                            plugin.getLogger()
+                                    .warning("Could not parse potion effect type: " + parts[0] + ": " + e.getMessage());
                         }
                         if (type != null) {
                             int amplifier = Integer.parseInt(parts[1]);
@@ -1238,32 +1353,35 @@ public class DatabaseManager {
                             boolean ambient = Boolean.parseBoolean(parts[3]);
                             boolean particles = Boolean.parseBoolean(parts[4]);
                             boolean icon = Boolean.parseBoolean(parts[5]);
-                            
+
                             org.bukkit.potion.PotionEffect effect = new org.bukkit.potion.PotionEffect(
-                                type, duration, amplifier, ambient, particles, icon);
+                                    type, duration, amplifier, ambient, particles, icon);
                             player.addPotionEffect(effect);
                         }
                     }
                 } catch (Exception e) {
-                    plugin.getLogger().warning("Failed to load effect '" + effectStr + "' for " + player.getName() + ": " + e.getMessage());
+                    plugin.getLogger().warning("Failed to load effect '" + effectStr + "' for " + player.getName()
+                            + ": " + e.getMessage());
                 }
             }
         } catch (Exception e) {
             plugin.getLogger().severe("Error loading effects for " + player.getName() + ": " + e.getMessage());
         }
     }
-    
+
     /**
      * Load player statistics
      */
     private void loadStatistics(Player player, String data) {
-        if (data == null || data.isEmpty()) return;
-        
+        if (data == null || data.isEmpty())
+            return;
+
         try {
             String[] stats = data.split(";");
             for (String statStr : stats) {
-                if (statStr.trim().isEmpty()) continue;
-                
+                if (statStr.trim().isEmpty())
+                    continue;
+
                 try {
                     String[] parts = statStr.split(",");
                     if (parts.length >= 2) {
@@ -1272,45 +1390,49 @@ public class DatabaseManager {
                         player.setStatistic(stat, value);
                     }
                 } catch (Exception e) {
-                    plugin.getLogger().warning("Failed to load statistic '" + statStr + "' for " + player.getName() + ": " + e.getMessage());
+                    plugin.getLogger().warning("Failed to load statistic '" + statStr + "' for " + player.getName()
+                            + ": " + e.getMessage());
                 }
             }
         } catch (Exception e) {
             plugin.getLogger().severe("Error loading statistics for " + player.getName() + ": " + e.getMessage());
         }
     }
-    
+
     /**
      * Load player attributes
      */
     private void loadAttributes(Player player, String data) {
-        if (data == null || data.isEmpty()) return;
-        
+        if (data == null || data.isEmpty())
+            return;
+
         try {
             String[] attributes = data.split(";");
             for (String attrStr : attributes) {
-                if (attrStr.trim().isEmpty()) continue;
-                
+                if (attrStr.trim().isEmpty())
+                    continue;
+
                 try {
                     String[] parts = attrStr.split(",");
                     if (parts.length >= 2) {
                         org.bukkit.attribute.Attribute attr = org.bukkit.attribute.Attribute.valueOf(parts[0]);
                         double value = Double.parseDouble(parts[1]);
-                        
+
                         org.bukkit.attribute.AttributeInstance instance = player.getAttribute(attr);
                         if (instance != null) {
                             instance.setBaseValue(value);
                         }
                     }
                 } catch (Exception e) {
-                    plugin.getLogger().warning("Failed to load attribute '" + attrStr + "' for " + player.getName() + ": " + e.getMessage());
+                    plugin.getLogger().warning("Failed to load attribute '" + attrStr + "' for " + player.getName()
+                            + ": " + e.getMessage());
                 }
             }
         } catch (Exception e) {
             plugin.getLogger().severe("Error loading attributes for " + player.getName() + ": " + e.getMessage());
         }
     }
-    
+
     /**
      * Log performance statistics periodically
      */
@@ -1318,28 +1440,29 @@ public class DatabaseManager {
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastPerformanceLog > PERFORMANCE_LOG_INTERVAL) {
             lastPerformanceLog = currentTime;
-            
+
             if (plugin.getConfigManager().isPerformanceLoggingEnabled()) {
                 double avgSaveTime = saveCount > 0 ? (double) totalSaveTime / saveCount : 0;
                 double avgLoadTime = loadCount > 0 ? (double) totalLoadTime / loadCount : 0;
-                
-                plugin.getLogger().info(String.format("Performance Stats - Saves: %d (avg: %.1fms), Loads: %d (avg: %.1fms)", 
-                    saveCount, avgSaveTime, loadCount, avgLoadTime));
+
+                plugin.getLogger()
+                        .info(String.format("Performance Stats - Saves: %d (avg: %.1fms), Loads: %d (avg: %.1fms)",
+                                saveCount, avgSaveTime, loadCount, avgLoadTime));
             }
         }
     }
-    
+
     /**
      * Get current performance statistics
      */
     public String getPerformanceStats() {
         double avgSaveTime = saveCount > 0 ? (double) totalSaveTime / saveCount : 0;
         double avgLoadTime = loadCount > 0 ? (double) totalLoadTime / loadCount : 0;
-        
-        return String.format("Saves: %d (avg: %.1fms), Loads: %d (avg: %.1fms)", 
-            saveCount, avgSaveTime, loadCount, avgLoadTime);
+
+        return String.format("Saves: %d (avg: %.1fms), Loads: %d (avg: %.1fms)",
+                saveCount, avgSaveTime, loadCount, avgLoadTime);
     }
-    
+
     /**
      * Reset performance statistics
      */
@@ -1350,14 +1473,15 @@ public class DatabaseManager {
         loadCount = 0;
         lastPerformanceLog = System.currentTimeMillis();
     }
-    
+
     /**
      * Get player balance using Vault API
      */
-    private double getPlayerBalance(Player player) {
+    public double getPlayerBalance(Player player) {
         Economy economy = plugin.getEconomyProvider();
         if (economy == null) {
-            plugin.getLogger().warning("Economy provider unavailable; skipping balance capture for " + player.getName());
+            plugin.getLogger()
+                    .warning("Economy provider unavailable; skipping balance capture for " + player.getName());
             return 0.0;
         }
 
@@ -1378,14 +1502,16 @@ public class DatabaseManager {
     /**
      * Set player balance using Vault API
      */
-    private void setPlayerBalance(Player player, double balance) {
+    public void setPlayerBalance(Player player, double balance) {
         Economy economy = plugin.getEconomyProvider();
         if (economy == null) {
-            plugin.getLogger().warning("Economy provider unavailable; skipping balance restore for " + player.getName());
+            plugin.getLogger()
+                    .warning("Economy provider unavailable; skipping balance restore for " + player.getName());
             return;
         }
 
-        plugin.logDebug("Attempting to set balance for " + player.getName() + " to " + balance);
+        double normalizedBalance = normalizeBalance(balance);
+        plugin.logDebug("Attempting to set balance for " + player.getName() + " to " + normalizedBalance);
 
         try {
             if (!economy.hasAccount(player)) {
@@ -1395,47 +1521,82 @@ public class DatabaseManager {
             plugin.logDebug("Economy provider found: " + economy.getName());
 
             try {
-                java.lang.reflect.Method setBalanceMethod =
-                    economy.getClass().getMethod("setBalance", org.bukkit.OfflinePlayer.class, double.class);
-                setBalanceMethod.invoke(economy, player, balance);
-                plugin.logDebug("Set balance for " + player.getName() + " to " + balance + " using setBalance method");
-                return;
+                java.lang.reflect.Method setBalanceMethod = economy.getClass().getMethod("setBalance",
+                        org.bukkit.OfflinePlayer.class, double.class);
+                setBalanceMethod.invoke(economy, player, normalizedBalance);
+                if (isBalanceWithinTolerance(economy.getBalance(player), normalizedBalance)) {
+                    plugin.logDebug("Set balance for " + player.getName() + " to " + normalizedBalance
+                            + " using setBalance method");
+                    return;
+                }
+                plugin.logDebug(
+                        "setBalance method executed but verification failed, falling back to deposit/withdraw strategy");
             } catch (NoSuchMethodException e) {
                 plugin.logDebug("setBalance method not available, using deposit/withdraw approach");
             } catch (ReflectiveOperationException reflectiveError) {
-                plugin.getLogger().warning("Failed to invoke setBalance on economy provider " + economy.getName() + ": " + reflectiveError.getMessage());
+                plugin.getLogger().warning("Failed to invoke setBalance on economy provider " + economy.getName() + ": "
+                        + reflectiveError.getMessage());
             }
 
-            double currentBalance = economy.getBalance(player);
-            double difference = balance - currentBalance;
+            double currentBalance = normalizeBalance(economy.getBalance(player));
+            double difference = normalizeBalance(normalizedBalance - currentBalance);
 
-            plugin.logDebug("Current balance: " + currentBalance + ", Target balance: " + balance + ", Difference: " + difference);
+            plugin.logDebug("Current balance: " + currentBalance + ", Target balance: " + normalizedBalance
+                    + ", Difference: " + difference);
 
             if (Math.abs(difference) < 0.01) {
                 plugin.logDebug("Balance is already correct (within tolerance)");
                 return;
             }
 
-            EconomyResponse response;
-            if (difference > 0) {
-                response = economy.depositPlayer(player, difference);
-                if (!response.transactionSuccess()) {
-                    plugin.getLogger().warning("Failed to deposit funds for " + player.getName() + ": " + response.errorMessage);
+            final int maxAdjustmentAttempts = 3;
+            for (int attempt = 1; attempt <= maxAdjustmentAttempts; attempt++) {
+                EconomyResponse response;
+                if (difference > 0) {
+                    response = economy.depositPlayer(player, difference);
+                    if (!response.transactionSuccess()) {
+                        plugin.getLogger().warning(
+                                "Failed to deposit funds for " + player.getName() + ": " + response.errorMessage);
+                        return;
+                    }
+                    plugin.logDebug(
+                            "Added " + difference + " to " + player.getName() + "'s balance (attempt " + attempt + ")");
+                } else {
+                    response = economy.withdrawPlayer(player, Math.abs(difference));
+                    if (!response.transactionSuccess()) {
+                        plugin.getLogger().warning(
+                                "Failed to withdraw funds for " + player.getName() + ": " + response.errorMessage);
+                        return;
+                    }
+                    plugin.logDebug("Removed " + Math.abs(difference) + " from " + player.getName()
+                            + "'s balance (attempt " + attempt + ")");
+                }
+
+                double updatedBalance = normalizeBalance(economy.getBalance(player));
+                if (isBalanceWithinTolerance(updatedBalance, normalizedBalance)) {
+                    plugin.logDebug("Balance synchronized for " + player.getName() + ": " + updatedBalance);
                     return;
                 }
-                plugin.logDebug("Added " + difference + " to " + player.getName() + "'s balance (now: " + balance + ")");
-            } else {
-                response = economy.withdrawPlayer(player, Math.abs(difference));
-                if (!response.transactionSuccess()) {
-                    plugin.getLogger().warning("Failed to withdraw funds for " + player.getName() + ": " + response.errorMessage);
-                    return;
-                }
-                plugin.logDebug("Removed " + Math.abs(difference) + " from " + player.getName() + "'s balance (now: " + balance + ")");
+
+                difference = normalizeBalance(normalizedBalance - updatedBalance);
+                plugin.logDebug(
+                        "Balance re-adjustment needed for " + player.getName() + " (difference: " + difference + ")");
             }
+
+            plugin.getLogger().warning("Could not fully synchronize balance for " + player.getName() +
+                    ". Expected: " + normalizedBalance + ", actual: " + normalizeBalance(economy.getBalance(player)));
 
         } catch (Exception e) {
             plugin.getLogger().warning("Error setting player balance for " + player.getName() + ": " + e.getMessage());
         }
+    }
+
+    private double normalizeBalance(double balance) {
+        return Math.round(balance * 100.0D) / 100.0D;
+    }
+
+    private boolean isBalanceWithinTolerance(double actual, double expected) {
+        return Math.abs(normalizeBalance(actual) - normalizeBalance(expected)) < 0.01D;
     }
 
     public OfflinePlayerData loadOfflinePlayerData(UUID uuid, String fallbackName) {
@@ -1470,16 +1631,17 @@ public class DatabaseManager {
                         OfflinePlayerData data = new OfflinePlayerData(uuid, displayName);
                         data.setExistsInDatabase(true);
 
-                        ItemStack[] combinedInventory = InventoryUtils.safeItemStackArrayFromBase64(rs.getString("inventory"));
+                        ItemStack[] combinedInventory = InventoryUtils
+                                .safeItemStackArrayFromBase64(rs.getString("inventory"));
                         data.setInventoryContents(extractMainInventory(combinedInventory));
 
                         ItemStack[] armor = InventoryUtils.safeItemStackArrayFromBase64(rs.getString("armor"));
                         if (armor.length == 0 && combinedInventory.length > 36) {
                             armor = new ItemStack[] {
-                                combinedInventory.length > 36 ? combinedInventory[36] : null,
-                                combinedInventory.length > 37 ? combinedInventory[37] : null,
-                                combinedInventory.length > 38 ? combinedInventory[38] : null,
-                                combinedInventory.length > 39 ? combinedInventory[39] : null
+                                    combinedInventory.length > 36 ? combinedInventory[36] : null,
+                                    combinedInventory.length > 37 ? combinedInventory[37] : null,
+                                    combinedInventory.length > 38 ? combinedInventory[38] : null,
+                                    combinedInventory.length > 39 ? combinedInventory[39] : null
                             };
                         }
                         data.setArmorContents(normalizeArmorArray(armor));
@@ -1490,7 +1652,8 @@ public class DatabaseManager {
                         }
                         data.setOffhandItem(offhand);
 
-                        ItemStack[] enderChest = InventoryUtils.safeItemStackArrayFromBase64(rs.getString("enderchest"));
+                        ItemStack[] enderChest = InventoryUtils
+                                .safeItemStackArrayFromBase64(rs.getString("enderchest"));
                         data.setEnderChestContents(enderChest);
 
                         return data;
@@ -1537,7 +1700,7 @@ public class DatabaseManager {
 
             if (data.existsInDatabase()) {
                 String updateSql = "UPDATE " + tableName
-                    + " SET inventory=?, armor=?, offhand=?, last_save=CURRENT_TIMESTAMP, server_id=? WHERE uuid=?";
+                        + " SET inventory=?, armor=?, offhand=?, last_save=CURRENT_TIMESTAMP, server_id=? WHERE uuid=?";
                 try (PreparedStatement ps = connection.prepareStatement(updateSql)) {
                     ps.setString(1, inventoryData);
                     ps.setString(2, armorData);
@@ -1551,7 +1714,7 @@ public class DatabaseManager {
             }
 
             String insertSql = "INSERT INTO " + tableName
-                + " (uuid, inventory, armor, offhand, server_id) VALUES (?,?,?,?,?)";
+                    + " (uuid, inventory, armor, offhand, server_id) VALUES (?,?,?,?,?)";
             try (PreparedStatement ps = connection.prepareStatement(insertSql)) {
                 ps.setString(1, data.getUuid().toString());
                 ps.setString(2, inventoryData);
@@ -1564,7 +1727,8 @@ public class DatabaseManager {
                 }
             }
         } catch (SQLException | IOException e) {
-            plugin.getLogger().severe("Error saving offline inventory for " + data.getDisplayName() + ": " + e.getMessage());
+            plugin.getLogger()
+                    .severe("Error saving offline inventory for " + data.getDisplayName() + ": " + e.getMessage());
         } finally {
             plugin.returnConnection(connection);
         }
@@ -1592,7 +1756,7 @@ public class DatabaseManager {
 
             if (data.existsInDatabase()) {
                 String updateSql = "UPDATE " + tableName
-                    + " SET enderchest=?, last_save=CURRENT_TIMESTAMP, server_id=? WHERE uuid=?";
+                        + " SET enderchest=?, last_save=CURRENT_TIMESTAMP, server_id=? WHERE uuid=?";
                 try (PreparedStatement ps = connection.prepareStatement(updateSql)) {
                     ps.setString(1, enderData);
                     ps.setString(2, serverId);
@@ -1614,7 +1778,8 @@ public class DatabaseManager {
                 }
             }
         } catch (SQLException | IOException e) {
-            plugin.getLogger().severe("Error saving offline ender chest for " + data.getDisplayName() + ": " + e.getMessage());
+            plugin.getLogger()
+                    .severe("Error saving offline ender chest for " + data.getDisplayName() + ": " + e.getMessage());
         } finally {
             plugin.returnConnection(connection);
         }
