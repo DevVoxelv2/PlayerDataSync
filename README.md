@@ -1,5 +1,9 @@
 # PlayerDataSync
 
+> [!IMPORTANT]
+> **Notice:** This plugin is no longer officially supported and has been succeeded by [PlayerDataSyncReloaded](https://github.com/DerGamer009/PlayerDataSyncReloaded). Thank you for all your support!
+
+
 A comprehensive Bukkit/Spigot plugin for Minecraft **1.8 to 26.3** that synchronizes player data across multiple servers using MySQL, SQLite, or PostgreSQL databases. Perfect for multi-server networks with BungeeCord or Velocity.
 
 Player inventories, experience, health, achievements, economy balance, and more are stored in a shared database whenever they leave a server and restored when they join again.
@@ -276,11 +280,16 @@ The plugin uses the following permissions:
 
 ## 📊 Metrics
 
-The plugin uses [bStats](https://bstats.org/) to collect anonymous usage statistics. You can disable this in the config:
+The plugin uses [bStats](https://bstats.org/) and **FastStats** to collect anonymous usage statistics. This helps us understand feature adoption and improve the plugin.
+
+- **Metrics Documentation**: [METRICS.md](METRICS.md)
+
+You can disable metrics in the `config.yml`:
 
 ```yaml
 metrics:
-  bstats: false  # Disable bStats metrics collection
+  bstats: true
+  faststats: true
 ```
 
 ## 🤝 Contributing
